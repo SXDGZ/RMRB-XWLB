@@ -19,6 +19,8 @@ import requests
 import json
 import re
 import os
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -30,6 +32,11 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.deepseek.com/anthropi
 LLM_MODEL = os.environ.get("LLM_MODEL", "DeepSeek-V4-Flash")
 QMSG_KEY = os.environ.get("QMSG_KEY", "")          # Qmsg酱的KEY
 QQ_RECEIVER = os.environ.get("QQ_RECEIVER", "")     # 接收消息的QQ号
+
+# 邮箱推送配置（推荐，无关键词限制）
+SMTP_USER = os.environ.get("SMTP_USER", "")          # QQ邮箱地址，如 2802492961@qq.com
+SMTP_PASS = os.environ.get("SMTP_PASS", "")          # QQ邮箱SMTP授权码（不是QQ密码！）
+SMTP_TO = os.environ.get("SMTP_TO", "")              # 接收邮件的邮箱（默认同发件人）
 
 # 目标日期（默认昨天，可被覆盖用于测试）
 TARGET_DATE = os.environ.get("TARGET_DATE", None)  # 格式: YYYY-MM-DD
@@ -354,8 +361,58 @@ def call_llm(prompt: str) -> Optional[str]:
 
 
 # ============================================================
-# 第三部分：推送至QQ
+# 第三部分：推送（邮箱优先 + Qmsg酱备用）
 # ============================================================
+
+def send_email(message: str, title: str = "每日新闻解读") -> bool:
+    """通过QQ邮箱SMTP发送（无关键词限制，推荐）"""
+    sender = SMTP_USER or f"{QQ_RECEIVER}@qq.com"
+    to_addr = SMTP_TO or sender
+    password = SMTP_PASS
+
+    if not password:
+        print("[邮箱] 未配置SMTP_PASS，跳过邮箱推送")
+        return False
+
+    print(f"[邮箱] 正在发送至 {to_addr}...")
+    try:
+        # 构建邮件（HTML格式，更美观）
+        body_html = message.replace("\n", "<br>")
+        body_html = re.sub(r'【([^】]+)】', r'<h3>\1</h3>', body_html)
+        body_html = f"""
+        <html>
+        <head><meta charset="utf-8"><style>
+            body {{ font-family: "Microsoft YaHei", sans-serif; padding: 20px; }}
+            h3 {{ color: #c0392b; border-bottom: 2px solid #eee; padding-bottom: 5px; }}
+            h2 {{ color: #c0392b; }}
+            hr {{ border: none; border-top: 1px solid #eee; }}
+        </style></head>
+        <body>{body_html}</body></html>
+        """
+
+        msg = MIMEText(body_html, "html", "utf-8")
+        msg["Subject"] = title
+        msg["From"] = sender
+        msg["To"] = to_addr
+
+        # QQ邮箱SMTP: smtp.qq.com 端口465(SSL)
+        with smtplib.SMTP_SSL("smtp.qq.com", 465, timeout=30) as server:
+            server.login(sender, password)
+            server.sendmail(sender, [to_addr], msg.as_string())
+
+        print(f"  ✓ 邮件推送成功！请检查 {to_addr}")
+        return True
+    except smtplib.SMTPAuthenticationError:
+        print(f"  [ERROR] SMTP登录失败：请检查授权码是否正确")
+        print(f"  [提示] QQ邮箱 → 设置 → 账户 → 开启SMTP服务 → 生成授权码")
+        return False
+    except smtplib.SMTPException as e:
+        print(f"  [ERROR] SMTP发送失败: {e}")
+        return False
+    except Exception as e:
+        print(f"  [ERROR] 邮件发送异常: {e}")
+        return False
+
 
 def send_to_qq(message: str, title: str = "每日新闻解读") -> bool:
     """通过Qmsg酱发送消息到QQ"""
@@ -464,16 +521,23 @@ def main():
         f.write(summary)
     print(f"  → 已保存至 {output_file}")
 
-    # ---- 步骤4：推送至QQ ----
-    print("【4/4】推送至QQ...")
-    ok = send_to_qq(summary, f"新闻解读 {date_obj.strftime('%Y.%m.%d')}")
-    if ok:
+    # ---- 步骤4：推送（邮箱优先，Qmsg酱备用） ----
+    print("【4/4】推送消息...")
+    title = f"新闻解读 {date_obj.strftime('%Y.%m.%d')}"
+
+    # 方式A：邮箱推送（推荐，无关键词限制）
+    email_ok = send_email(summary, title)
+
+    # 方式B：Qmsg酱辅助推送（如果能用的话）
+    qq_ok = send_to_qq(summary, title)
+
+    if email_ok or qq_ok:
         print(f"\n{'='*50}")
-        print(f"  ✅ 全部完成！新闻解读已推送到QQ")
+        print(f"  ✅ 全部完成！新闻解读已推送（邮箱={'✓' if email_ok else '✗'} QQ={'✓' if qq_ok else '✗'}）")
         print(f"{'='*50}\n")
     else:
         print(f"\n{'='*50}")
-        print(f"  ⚠ 推送可能未完全成功，请检查QMSG_KEY配置")
+        print(f"  ⚠ 所有推送方式均失败，请检查配置")
         print(f"{'='*50}\n")
 
 
