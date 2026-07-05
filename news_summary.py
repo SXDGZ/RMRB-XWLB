@@ -299,25 +299,31 @@ def build_prompt(xwlb_items: list, rmrb_items: list, date_str: str) -> str:
 --- 人民日报内容 ---
 {rmrb_text}
 
-请按以下格式生成解读报告：
+请按以下格式生成解读报告，**注意：只使用纯文本，不要使用markdown语法（不要用**、*、#、---、表格等标记）**：
 
-【今日头条】
+━━ 今日头条 ━━
 - 指出今天最重要的1-2条新闻，点明意义
 
-【要闻速览】
-- 用表格或分点列出所有重要新闻（按政治、经济、外交、社会科技分类）
+━━ 要闻速览 ━━
+用以下格式分政治、经济、外交、社会科技列出：
+政治: 要点1；要点2
+经济: 要点1；要点2
+外交: 要点1
+社会/科技: 要点1
 
-【深度解读】
-- 选取2-3个最值得关注的话题，提供背景分析和趋势判断
-- 指出新闻联播和人民日报的重合点
+━━ 深度解读 ━━
+选取2-3个最值得关注的话题，每个话题用3-5句话分析：
+- 背景
+- 趋势判断
+- 新闻联播和人民日报的重合点
 
-【国际视野】
-- 重要国际新闻及评论
+━━ 国际视野 ━━
+重要国际新闻及评论
 
-【一句话总结】
-- 用一句话概括今天新闻的核心主线
+━━ 一句话总结 ━━
+用一句话概括今天新闻的核心主线
 
-要求：专业但不晦涩，有观点有依据，每条分析后标注来源（新闻联播/人民日报）"""
+要求：专业但不晦涩，有观点有依据，每条分析后标注来源（新闻联播/人民日报）。全文不要超过2000字，紧凑精炼。"""
 
 
 def call_llm(prompt: str) -> Optional[str]:
@@ -360,6 +366,45 @@ def call_llm(prompt: str) -> Optional[str]:
         return None
 
 
+# 清理LLM输出中的Markdown标记
+def clean_markdown(text: str) -> str:
+    """清理Markdown标记，转为纯文本"""
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'`(.+?)`', r'\1', text)
+    text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text)
+    text = re.sub(r'\n[—\-_*]{3,}\n', '\n', text)
+    text = re.sub(r'\|', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+def text_to_html(text: str) -> str:
+    """将纯文本转为美化HTML邮件正文"""
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # 处理「━━ 标题 ━━」格式
+    text = re.sub(
+        r'[━]{2,}\s*(.+?)\s*[━]{2,}',
+        r'<h2 style="color:#c0392b;border-bottom:3px solid #e74c3c;padding-bottom:8px;margin:30px 0 15px 0;">\1</h2>',
+        text
+    )
+    # 处理【标题】格式
+    text = re.sub(
+        r'【(.+?)】',
+        r'<h3 style="color:#2c3e50;margin:20px 0 8px 0;font-size:16px;">▎\1</h3>',
+        text
+    )
+    # 换行
+    text = text.replace('\n', '<br>')
+    text = re.sub(r'(<br>){3,}', '<br><br>', text)
+    # 每一段加缩进
+    text = f'''<div style="font-family:'Microsoft YaHei','微软雅黑',sans-serif;font-size:15px;line-height:1.8;color:#333;padding:10px 0;">
+{text}
+</div>'''
+    return text
+
+
 # ============================================================
 # 第三部分：推送（邮箱优先 + Qmsg酱备用）
 # ============================================================
@@ -376,19 +421,24 @@ def send_email(message: str, title: str = "每日新闻解读") -> bool:
 
     print(f"[邮箱] 正在发送至 {to_addr}...")
     try:
-        # 构建邮件（HTML格式，更美观）
-        body_html = message.replace("\n", "<br>")
-        body_html = re.sub(r'【([^】]+)】', r'<h3>\1</h3>', body_html)
-        body_html = f"""
-        <html>
-        <head><meta charset="utf-8"><style>
-            body {{ font-family: "Microsoft YaHei", sans-serif; padding: 20px; }}
-            h3 {{ color: #c0392b; border-bottom: 2px solid #eee; padding-bottom: 5px; }}
-            h2 {{ color: #c0392b; }}
-            hr {{ border: none; border-top: 1px solid #eee; }}
-        </style></head>
-        <body>{body_html}</body></html>
-        """
+        # 将纯文本转为HTML邮件正文
+        body_html = text_to_html(message)
+        body_html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family:'Microsoft YaHei','微软雅黑',sans-serif;background:#f5f6fa;padding:20px;">
+<div style="max-width:660px;margin:0 auto;background:#fff;border-radius:8px;padding:30px 35px;box-shadow:0 2px 10px rgba(0,0,0,0.08);">
+<div style="text-align:center;padding:15px 0 10px;border-bottom:1px solid #eee;margin-bottom:20px;">
+<span style="font-size:20px;font-weight:bold;color:#c0392b;">📰 {title}</span>
+</div>
+{body_html}
+<div style="text-align:center;color:#999;font-size:12px;border-top:1px solid #eee;padding-top:15px;margin-top:30px;">
+每日自动采集 · AI深度解读<br>
+数据来源：央视《新闻联播》· 《人民日报》
+</div>
+</div>
+</body>
+</html>"""
 
         msg = MIMEText(body_html, "html", "utf-8")
         msg["Subject"] = title
@@ -515,10 +565,15 @@ def main():
         summary += "\n\n【人民日报 " + date_str + "】\n" + "\n".join(f"- {i}" for i in rmrb[:10])
     print(f"  → 总结完成（{len(summary)}字符）\n")
 
+    # 清理markdown标记，转为纯文本
+    summary_clean = clean_markdown(summary)
+    if summary_clean != summary:
+        print(f"  → 已清理Markdown标记（{len(summary_clean)}字符）\n")
+
     # 保存到本地文件
     output_file = f"news_{date_ymd}.md"
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write(summary)
+        f.write(summary_clean)
     print(f"  → 已保存至 {output_file}")
 
     # ---- 步骤4：推送（邮箱优先，Qmsg酱备用） ----
@@ -526,10 +581,10 @@ def main():
     title = f"新闻解读 {date_obj.strftime('%Y.%m.%d')}"
 
     # 方式A：邮箱推送（推荐，无关键词限制）
-    email_ok = send_email(summary, title)
+    email_ok = send_email(summary_clean, title)
 
     # 方式B：Qmsg酱辅助推送（如果能用的话）
-    qq_ok = send_to_qq(summary, title)
+    qq_ok = send_to_qq(summary_clean, title)
 
     if email_ok or qq_ok:
         print(f"\n{'='*50}")
