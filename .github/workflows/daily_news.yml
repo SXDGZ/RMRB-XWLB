@@ -3,29 +3,21 @@ name: 每日新闻自动总结与推送
 on:
   schedule:
     # 每天早上8:30执行（UTC 00:30 = 北京时间 08:30）
-    # 此时前一天的新闻联播和人民日报都已发布
     - cron: "30 0 * * *"
-  workflow_dispatch:  # 支持手动触发
+  workflow_dispatch:
 
 permissions:
-  contents: write  # 允许保存新闻摘要到仓库
+  contents: write
 
 jobs:
   news-summary:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出仓库
-        uses: actions/checkout@v5
-
-      - name: 设置Python
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-
-      - name: 安装依赖
-        run: |
-          pip install -r requirements.txt
-
+      - run: pip install -r requirements.txt
       - name: 执行新闻采集与总结
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
@@ -36,9 +28,7 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
-        run: |
-          python news_summary.py
-
+        run: python news_summary.py
       - name: 提交生成的新闻摘要
         run: |
           git config user.name "news-bot"
