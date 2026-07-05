@@ -33,6 +33,9 @@ jobs:
           LLM_MODEL: ${{ secrets.LLM_MODEL }}
           QMSG_KEY: ${{ secrets.QMSG_KEY }}
           QQ_RECEIVER: ${{ secrets.QQ_RECEIVER }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
         run: |
           python news_summary.py
 
