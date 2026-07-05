@@ -1,0 +1,38 @@
+name: 每日新闻自动总结与推送
+
+on:
+  schedule:
+    # 每天早上8:30执行（UTC 00:30 = 北京时间 08:30）
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  news-summary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: 执行新闻采集与总结
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          QMSG_KEY: ${{ secrets.QMSG_KEY }}
+          QQ_RECEIVER: ${{ secrets.QQ_RECEIVER }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+        run: python news_summary.py
+      - name: 提交生成的新闻摘要
+        run: |
+          git config user.name "news-bot"
+          git config user.email "news-bot@github.com"
+          git add news_*.md
+          git diff --cached --quiet || git commit -m "每日新闻摘要 $(date +'%Y-%m-%d')"
+          git push
